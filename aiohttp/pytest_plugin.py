@@ -5,7 +5,13 @@ import pytest
 from aiohttp.web import Application
 
 from .test_utils import (TestClient, loop_context, setup_test_loop,
-                         teardown_test_loop)
+                         teardown_test_loop, unused_port)
+
+
+try:
+    import uvloop
+except ImportError:
+    uvloop = None
 
 
 @contextlib.contextmanager
@@ -44,14 +50,45 @@ def pytest_pyfunc_call(pyfuncitem):
         return True
 
 
+def pytest_addoption(parser):
+    parser.addoption("--loop_library", choices=['asyncio', 'uvloop'],
+                     default='asyncio',
+                     help=("Used event loop implementation\n."
+                           "asyncio by default.\n"
+                           "Available values: asyncio, uvloop, all"))
+
+
+def pytest_generate_tests(metafunc):
+    if 'loop_library' in metafunc.fixturenames:
+        loop_library = metafunc.config.option.loop_library
+        if loop_library == 'asyncio':
+            libs = [asyncio]
+        elif loop_library == 'uvloop':
+            libs = [uvloop]
+        elif loop_library == 'all':
+            libs = [asyncio, uvloop]
+        else:
+            raise RuntimeError('Unsupported --loop_library value')
+        if None in libs:
+            raise RuntimeError('Not all --loop_library libs are installed.\n'
+                               'Try pip install uvloop')
+        metafunc.parametrize("loop_library", libs, scope='session')
+
+
+# add the unused_port fixture
+unused_port = pytest.fixture(unused_port)
+
+
 @pytest.yield_fixture
 def loop():
-    with loop_context() as _loop:
-        yield _loop
+    """Event loop instance"""
+    with loop_context() as loop:
+        yield loop
 
 
 @pytest.yield_fixture
 def test_client(loop):
+    """Test HTTP client"""
     clients = []
 
     @asyncio.coroutine

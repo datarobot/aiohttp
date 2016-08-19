@@ -228,24 +228,24 @@ def unittest_run_loop(func):
 
 
 @contextlib.contextmanager
-def loop_context():
+def loop_context(loop_library=asyncio):
     """A contextmanager that creates an event_loop, for test purposes.
 
     Handles the creation and cleanup of a test loop.
     """
-    loop = setup_test_loop()
+    loop = setup_test_loop(loop_library)
     yield loop
     teardown_test_loop(loop)
 
 
-def setup_test_loop():
+def setup_test_loop(loop_library=asyncio):
     """Create and return an asyncio.BaseEventLoop
     instance.
 
     The caller should also call teardown_test_loop,
     once they are done with the loop.
     """
-    loop = asyncio.new_event_loop()
+    loop = loop_library.new_event_loop()
     asyncio.set_event_loop(None)
     return loop
 

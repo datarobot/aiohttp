@@ -9,7 +9,8 @@ import pytest
 
 import aiohttp
 from aiohttp import web
-from aiohttp.test_utils import loop_context, unused_port
+
+pytest_plugins = 'aiohttp.pytest_plugin'
 
 
 class _AssertWarnsContext:
@@ -147,18 +148,8 @@ def log():
     yield _AssertLogsContext
 
 
-# add the unused_port and loop fixtures
-pytest.fixture(unused_port)
-
-
 @pytest.yield_fixture
-def loop():
-    with loop_context() as loop:
-        yield loop
-
-
-@pytest.yield_fixture
-def create_server(loop):
+def create_server(loop, unused_port):
     app = handler = srv = None
 
     @asyncio.coroutine

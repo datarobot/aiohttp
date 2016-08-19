@@ -17,8 +17,6 @@ from aiohttp.errors import FingerprintMismatch
 from aiohttp.helpers import create_future
 from aiohttp.multipart import MultipartWriter
 
-pytest_plugins = 'aiohttp.pytest_plugin'
-
 
 @pytest.fixture
 def here():
