@@ -6,15 +6,12 @@ import unittest
 import urllib.request
 from textwrap import dedent
 
-from aiohttp.cookiejar import (time2isoz, http2time, iso2time,
-                               time2netscape, parse_ns_headers,
-                               join_header_words, split_header_words,
-                               Cookie, CookieJar, DefaultCookiePolicy,
-                               DEFAULT_HTTP_PORT,
-                               escape_path, reach, is_HDN,
-                               domain_match, user_domain_match,
-                               request_path, request_port,
-                               request_host)
+from aiohttp.cookiejar import (DEFAULT_HTTP_PORT, Cookie, CookieJar,
+                               DefaultCookiePolicy, domain_match, escape_path,
+                               http2time, is_HDN, iso2time, join_header_words,
+                               parse_ns_headers, reach, request_host,
+                               request_path, request_port, split_header_words,
+                               time2isoz, time2netscape, user_domain_match)
 
 
 class DateTimeTests(unittest.TestCase):
