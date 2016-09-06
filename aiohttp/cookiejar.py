@@ -10,10 +10,6 @@ import re
 import time
 import urllib.parse
 import urllib.request
-try:
-    import threading as _threading
-except ImportError:
-    import dummy_threading as _threading
 import http.client  # only for the default HTTP port
 from calendar import timegm
 
@@ -1276,8 +1272,6 @@ class CookieJar:
         if policy is None:
             policy = DefaultCookiePolicy()
         self._policy = policy
-
-        self._cookies_lock = _threading.RLock()
         self._cookies = {}
 
     def set_policy(self, policy):
@@ -1374,30 +1368,24 @@ class CookieJar:
 
         """
         _debug("add_cookie_header")
-        self._cookies_lock.acquire()
-        try:
+        self._policy._now = self._now = int(time.time())
 
-            self._policy._now = self._now = int(time.time())
+        cookies = self._cookies_for_request(request)
 
-            cookies = self._cookies_for_request(request)
+        attrs = self._cookie_attrs(cookies)
+        if attrs:
+            if not request.has_header("Cookie"):
+                request.add_unredirected_header(
+                    "Cookie", "; ".join(attrs))
 
-            attrs = self._cookie_attrs(cookies)
-            if attrs:
-                if not request.has_header("Cookie"):
-                    request.add_unredirected_header(
-                        "Cookie", "; ".join(attrs))
-
-            # if necessary, advertise that we know RFC 2965
-            if (self._policy.rfc2965 and not self._policy.hide_cookie2 and
-                    not request.has_header("Cookie2")):
-                for cookie in cookies:
-                    if cookie.version != 1:
-                        request.add_unredirected_header("Cookie2",
-                                                        '$Version="1"')
-                        break
-
-        finally:
-            self._cookies_lock.release()
+        # if necessary, advertise that we know RFC 2965
+        if (self._policy.rfc2965 and not self._policy.hide_cookie2 and
+                not request.has_header("Cookie2")):
+            for cookie in cookies:
+                if cookie.version != 1:
+                    request.add_unredirected_header("Cookie2",
+                                                    '$Version="1"')
+                    break
 
         self.clear_expired_cookies()
 
@@ -1669,43 +1657,31 @@ class CookieJar:
 
     def set_cookie_if_ok(self, cookie, request):
         """Set a cookie if policy says it's OK to do so."""
-        self._cookies_lock.acquire()
-        try:
-            self._policy._now = self._now = int(time.time())
+        self._policy._now = self._now = int(time.time())
 
-            if self._policy.set_ok(cookie, request):
-                self.set_cookie(cookie)
-        finally:
-            self._cookies_lock.release()
+        if self._policy.set_ok(cookie, request):
+            self.set_cookie(cookie)
 
     def set_cookie(self, cookie):
         """Set a cookie, without checking whether or not it should be set."""
         c = self._cookies
-        self._cookies_lock.acquire()
-        try:
-            if cookie.domain not in c:
-                c[cookie.domain] = {}
-            c2 = c[cookie.domain]
-            if cookie.path not in c2:
-                c2[cookie.path] = {}
-            c3 = c2[cookie.path]
-            c3[cookie.name] = cookie
-        finally:
-            self._cookies_lock.release()
+        if cookie.domain not in c:
+            c[cookie.domain] = {}
+        c2 = c[cookie.domain]
+        if cookie.path not in c2:
+            c2[cookie.path] = {}
+        c3 = c2[cookie.path]
+        c3[cookie.name] = cookie
 
     def extract_cookies(self, response, request):
         """Extract cookies from response, where allowable given the request."""
         _debug("extract_cookies: %s", response.info())
-        self._cookies_lock.acquire()
-        try:
-            self._policy._now = self._now = int(time.time())
+        self._policy._now = self._now = int(time.time())
 
-            for cookie in self.make_cookies(response, request):
-                if self._policy.set_ok(cookie, request):
-                    _debug(" setting cookie: %s", cookie)
-                    self.set_cookie(cookie)
-        finally:
-            self._cookies_lock.release()
+        for cookie in self.make_cookies(response, request):
+            if self._policy.set_ok(cookie, request):
+                _debug(" setting cookie: %s", cookie)
+                self.set_cookie(cookie)
 
     def clear(self, domain=None, path=None, name=None):
         """Clear some cookies.
@@ -1741,13 +1717,9 @@ class CookieJar:
         you ask otherwise by passing a true ignore_discard argument.
 
         """
-        self._cookies_lock.acquire()
-        try:
-            for cookie in self:
-                if cookie.discard:
-                    self.clear(cookie.domain, cookie.path, cookie.name)
-        finally:
-            self._cookies_lock.release()
+        for cookie in self:
+            if cookie.discard:
+                self.clear(cookie.domain, cookie.path, cookie.name)
 
     def clear_expired_cookies(self):
         """Discard all expired cookies.
@@ -1759,14 +1731,10 @@ class CookieJar:
         otherwise by passing a true ignore_expires argument).
 
         """
-        self._cookies_lock.acquire()
-        try:
-            now = time.time()
-            for cookie in self:
-                if cookie.is_expired(now):
-                    self.clear(cookie.domain, cookie.path, cookie.name)
-        finally:
-            self._cookies_lock.release()
+        now = time.time()
+        for cookie in self:
+            if cookie.is_expired(now):
+                self.clear(cookie.domain, cookie.path, cookie.name)
 
     def __iter__(self):
         return deepvalues(self._cookies)
