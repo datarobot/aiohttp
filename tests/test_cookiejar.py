@@ -4,186 +4,15 @@ import re
 import time
 import unittest
 import urllib.request
+from http.cookiejar import time2netscape
 from textwrap import dedent
 
 from aiohttp.cookiejar import (DEFAULT_HTTP_PORT, Cookie, CookieJar,
-                               DefaultCookiePolicy, domain_match, escape_path,
-                               http2time, is_HDN, iso2time, join_header_words,
-                               parse_ns_headers, reach, request_host,
-                               request_path, request_port, split_header_words,
-                               time2isoz, time2netscape, user_domain_match)
-
-
-class DateTimeTests(unittest.TestCase):
-
-    def test_time2isoz(self):
-        base = 1019227000
-        day = 24*3600
-        self.assertEqual(time2isoz(base), "2002-04-19 14:36:40Z")
-        self.assertEqual(time2isoz(base+day), "2002-04-20 14:36:40Z")
-        self.assertEqual(time2isoz(base+2*day), "2002-04-21 14:36:40Z")
-        self.assertEqual(time2isoz(base+3*day), "2002-04-22 14:36:40Z")
-
-        az = time2isoz()
-        bz = time2isoz(500000)
-        for text in (az, bz):
-            self.assertRegex(text, r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\dZ$",
-                             "bad time2isoz format: %s %s" % (az, bz))
-
-    def test_http2time(self):
-        def parse_date(text):
-            return time.gmtime(http2time(text))[:6]
-
-        self.assertEqual(parse_date("01 Jan 2001"), (2001, 1, 1, 0, 0, 0.0))
-
-        # this test will break around year 2070
-        self.assertEqual(parse_date("03-Feb-20"), (2020, 2, 3, 0, 0, 0.0))
-
-        # this test will break around year 2048
-        self.assertEqual(parse_date("03-Feb-98"), (1998, 2, 3, 0, 0, 0.0))
-
-    def test_http2time_formats(self):
-        # test http2time for supported dates.  Test cases with 2 digit year
-        # will probably break in year 2044.
-        tests = [
-            'Thu, 03 Feb 1994 00:00:00 GMT',  # proposed new HTTP format
-            'Thursday, 03-Feb-94 00:00:00 GMT',  # old rfc850 HTTP format
-            'Thursday, 03-Feb-1994 00:00:00 GMT',  # broken rfc850 HTTP format
-
-            '03 Feb 1994 00:00:00 GMT',  # HTTP format (no weekday)
-            '03-Feb-94 00:00:00 GMT',  # old rfc850 (no weekday)
-            '03-Feb-1994 00:00:00 GMT',  # broken rfc850 (no weekday)
-            '03-Feb-1994 00:00 GMT',  # broken rfc850 (no weekday, no seconds)
-            '03-Feb-1994 00:00',  # broken rfc850 (no weekday, seconds, tz)
-            '02-Feb-1994 24:00',  # broken rfc850 (no weekday, no seconds,
-                                  # no tz) using hour 24 with yesterday date
-
-            '03-Feb-94',  # old rfc850 HTTP format (no weekday, no time)
-            '03-Feb-1994',  # broken rfc850 HTTP format (no weekday, no time)
-            '03 Feb 1994',  # proposed new HTTP format (no weekday, no time)
-
-            # A few tests with extra space at various places
-            '  03   Feb   1994  0:00  ',
-            '  03-Feb-1994  ',
-        ]
-
-        test_t = 760233600  # assume broken POSIX counting of seconds
-        result = time2isoz(test_t)
-        expected = "1994-02-03 00:00:00Z"
-        self.assertEqual(result, expected,
-                         "%s  =>  '%s' (%s)" % (test_t, result, expected))
-
-        for s in tests:
-            self.assertEqual(http2time(s), test_t, s)
-            self.assertEqual(http2time(s.lower()), test_t, s.lower())
-            self.assertEqual(http2time(s.upper()), test_t, s.upper())
-
-    def test_http2time_garbage(self):
-        for test in ['',
-                     'Garbage',
-                     'Mandag 16. September 1996',
-                     '01-00-1980',
-                     '01-13-1980',
-                     '00-01-1980',
-                     '32-01-1980',
-                     '01-01-1980 25:00:00',
-                     '01-01-1980 00:61:00',
-                     '01-01-1980 00:00:62']:
-            self.assertIsNone(http2time(test),
-                              "http2time(%s) is not None\n"
-                              "http2time(test) %s" % (test, http2time(test)))
-
-    def test_iso2time(self):
-        def parse_date(text):
-            return time.gmtime(iso2time(text))[:6]
-
-        # ISO 8601 compact format
-        self.assertEqual(parse_date("19940203T141529Z"),
-                         (1994, 2, 3, 14, 15, 29))
-
-        # ISO 8601 with time behind UTC
-        self.assertEqual(parse_date("1994-02-03 07:15:29 -0700"),
-                         (1994, 2, 3, 14, 15, 29))
-
-        # ISO 8601 with time ahead of UTC
-        self.assertEqual(parse_date("1994-02-03 19:45:29 +0530"),
-                         (1994, 2, 3, 14, 15, 29))
-
-    def test_iso2time_formats(self):
-        # test iso2time for supported dates.
-        tests = [
-            '1994-02-03 00:00:00 -0000',  # ISO 8601 format
-            '1994-02-03 00:00:00 +0000',  # ISO 8601 format
-            '1994-02-03 00:00:00',        # zone is optional
-            '1994-02-03',                 # only date
-            '1994-02-03T00:00:00',        # Use T as separator
-            '19940203',                   # only date
-            '1994-02-02 24:00:00',        # using hour-24 yesterday date
-            '19940203T000000Z',           # ISO 8601 compact format
-
-            # A few tests with extra space at various places
-            '  1994-02-03 ',
-            '  1994-02-03T00:00:00  ',
-        ]
-
-        test_t = 760233600  # assume broken POSIX counting of seconds
-        for s in tests:
-            self.assertEqual(iso2time(s), test_t, s)
-            self.assertEqual(iso2time(s.lower()), test_t, s.lower())
-            self.assertEqual(iso2time(s.upper()), test_t, s.upper())
-
-    def test_iso2time_garbage(self):
-        for test in ['',
-                     'Garbage',
-                     'Thursday, 03-Feb-94 00:00:00 GMT',
-                     '1980-00-01',
-                     '1980-13-01',
-                     '1980-01-00',
-                     '1980-01-32',
-                     '1980-01-01 25:00:00',
-                     '1980-01-01 00:61:00',
-                     '01-01-1980 00:00:62',
-                     '01-01-1980T00:00:62',
-                     '19800101T250000Z'
-                     '1980-01-01 00:00:00 -2500']:
-            self.assertIsNone(iso2time(test),
-                              "iso2time(%s) is not None\n"
-                              "iso2time(test) %s" % (test, iso2time(test)))
+                               DefaultCookiePolicy, escape_path, request_host,
+                               request_path, request_port, split_header_words)
 
 
 class HeaderTests(unittest.TestCase):
-
-    def test_parse_ns_headers(self):
-        # quotes should be stripped
-        expected = [[('foo', 'bar'),
-                     ('expires', 2209069412),
-                     ('version', '0')]]
-        for hdr in ['foo=bar; expires=01 Jan 2040 22:23:32 GMT',
-                    'foo=bar; expires="01 Jan 2040 22:23:32 GMT"']:
-            self.assertEqual(parse_ns_headers([hdr]), expected)
-
-    def test_parse_ns_headers_version(self):
-
-        # quotes should be stripped
-        expected = [[('foo', 'bar'), ('version', '1')]]
-        for hdr in ['foo=bar; version="1"',
-                    'foo=bar; Version="1"']:
-            self.assertEqual(parse_ns_headers([hdr]), expected)
-
-    def test_parse_ns_headers_special_names(self):
-        # names such as 'expires' are not special in first name=value pair
-        # of Set-Cookie: header
-        # Cookie with name 'expires'
-        hdr = 'expires=01 Jan 2040 22:23:32 GMT'
-        expected = [[("expires", "01 Jan 2040 22:23:32 GMT"),
-                     ("version", "0")]]
-        self.assertEqual(parse_ns_headers([hdr]), expected)
-
-    def test_join_header_words(self):
-        joined = join_header_words([[("foo", None), ("bar", "baz")]])
-        self.assertEqual(joined, "foo; bar=baz")
-
-        self.assertEqual(join_header_words([[]]), "")
 
     def test_split_header_words(self):
         tests = [
@@ -219,38 +48,6 @@ class HeaderTests(unittest.TestCase):
                 Expected:     '%s'
                 Got:          '%s'
                 """) % (arg, expect, result))
-
-    def test_roundtrip(self):
-        tests = [
-            ("foo", "foo"),
-            ("foo=bar", "foo=bar"),
-            ("   foo   ", "foo"),
-            ("foo=", 'foo=""'),
-            ("foo=bar bar=baz", "foo=bar; bar=baz"),
-            ("foo=bar;bar=baz", "foo=bar; bar=baz"),
-            ('foo bar baz', "foo; bar; baz"),
-            (r'foo="\"" bar="\\"', r'foo="\""; bar="\\"'),
-            ('foo,,,bar', 'foo, bar'),
-            ('foo=bar,bar=baz', 'foo=bar, bar=baz'),
-
-            ('text/html; charset=iso-8859-1',
-             'text/html; charset="iso-8859-1"'),
-
-            ('foo="bar"; port="80,81"; discard, bar=baz',
-             'foo=bar; port="80,81"; discard, bar=baz'),
-
-            (r'Basic realm="\"foo\\\\bar\""',
-             r'Basic; realm="\"foo\\\\bar\""')]
-
-        for arg, expect in tests:
-            input = split_header_words([arg])
-            res = join_header_words(input)
-            self.assertEqual(res, expect, """
-When parsing: '%s'
-Expected:     '%s'
-Got:          '%s'
-Input was:    '%s'
-""" % (arg, expect, res, input))
 
 
 class FakeResponse:
@@ -618,62 +415,6 @@ class CookieTests(unittest.TestCase):
                                      headers={"Host": "www.acme.com:5432"})
         self.assertEqual(request_host(req), "www.acme.com")
 
-    def test_is_HDN(self):
-        self.assertTrue(is_HDN("foo.bar.com"))
-        self.assertTrue(is_HDN("1foo2.3bar4.5com"))
-        self.assertFalse(is_HDN("192.168.1.1"))
-        self.assertFalse(is_HDN(""))
-        self.assertFalse(is_HDN("."))
-        self.assertFalse(is_HDN(".foo.bar.com"))
-        self.assertFalse(is_HDN("..foo"))
-        self.assertFalse(is_HDN("foo."))
-
-    def test_reach(self):
-        self.assertEqual(reach("www.acme.com"), ".acme.com")
-        self.assertEqual(reach("acme.com"), "acme.com")
-        self.assertEqual(reach("acme.local"), ".local")
-        self.assertEqual(reach(".local"), ".local")
-        self.assertEqual(reach(".com"), ".com")
-        self.assertEqual(reach("."), ".")
-        self.assertEqual(reach(""), "")
-        self.assertEqual(reach("192.168.0.1"), "192.168.0.1")
-
-    def test_domain_match(self):
-        self.assertTrue(domain_match("192.168.1.1", "192.168.1.1"))
-        self.assertFalse(domain_match("192.168.1.1", ".168.1.1"))
-        self.assertTrue(domain_match("x.y.com", "x.Y.com"))
-        self.assertTrue(domain_match("x.y.com", ".Y.com"))
-        self.assertFalse(domain_match("x.y.com", "Y.com"))
-        self.assertTrue(domain_match("a.b.c.com", ".c.com"))
-        self.assertFalse(domain_match(".c.com", "a.b.c.com"))
-        self.assertTrue(domain_match("example.local", ".local"))
-        self.assertFalse(domain_match("blah.blah", ""))
-        self.assertFalse(domain_match("", ".rhubarb.rhubarb"))
-        self.assertTrue(domain_match("", ""))
-
-        self.assertTrue(user_domain_match("acme.com", "acme.com"))
-        self.assertFalse(user_domain_match("acme.com", ".acme.com"))
-        self.assertTrue(user_domain_match("rhubarb.acme.com", ".acme.com"))
-        self.assertTrue(user_domain_match("www.rhubarb.acme.com", ".acme.com"))
-        self.assertTrue(user_domain_match("x.y.com", "x.Y.com"))
-        self.assertTrue(user_domain_match("x.y.com", ".Y.com"))
-        self.assertFalse(user_domain_match("x.y.com", "Y.com"))
-        self.assertTrue(user_domain_match("y.com", "Y.com"))
-        self.assertFalse(user_domain_match(".y.com", "Y.com"))
-        self.assertTrue(user_domain_match(".y.com", ".Y.com"))
-        self.assertTrue(user_domain_match("x.y.com", ".com"))
-        self.assertFalse(user_domain_match("x.y.com", "com"))
-        self.assertFalse(user_domain_match("x.y.com", "m"))
-        self.assertFalse(user_domain_match("x.y.com", ".m"))
-        self.assertFalse(user_domain_match("x.y.com", ""))
-        self.assertFalse(user_domain_match("x.y.com", "."))
-        self.assertTrue(user_domain_match("192.168.1.1", "192.168.1.1"))
-        # not both HDNs, so must string-compare equal to match
-        self.assertFalse(user_domain_match("192.168.1.1", ".168.1.1"))
-        self.assertFalse(user_domain_match("192.168.1.1", "."))
-        # empty string is a special case
-        self.assertFalse(user_domain_match("192.168.1.1", ""))
-
     def test_wrong_domain(self):
         # Cookies whose effective request-host name does not domain-match the
         # domain are rejected.
@@ -1011,32 +752,6 @@ class CookieTests(unittest.TestCase):
                 self.assertEqual(c.domain, domains[i])
                 self.assertEqual(c.path, paths[i])
                 i = i + 1
-
-    def test_parse_ns_headers(self):
-        # missing domain value (invalid cookie)
-        self.assertEqual(
-            parse_ns_headers(["foo=bar; path=/; domain"]),
-            [[("foo", "bar"),
-              ("path", "/"), ("domain", None), ("version", "0")]])
-        # invalid expires value
-        self.assertEqual(
-            parse_ns_headers(["foo=bar; expires=Foo Bar 12 33:22:11 2000"]),
-            [[("foo", "bar"), ("expires", None), ("version", "0")]]
-        )
-        # missing cookie value (valid cookie)
-        self.assertEqual(
-            parse_ns_headers(["foo"]),
-            [[("foo", None), ("version", "0")]]
-        )
-        # missing cookie values for parsed attributes
-        self.assertEqual(
-            parse_ns_headers(['foo=bar; expires']),
-            [[('foo', 'bar'), ('expires', None), ('version', '0')]])
-        self.assertEqual(
-            parse_ns_headers(['foo=bar; version']),
-            [[('foo', 'bar'), ('version', None)]])
-        # shouldn't add version if header is empty
-        self.assertEqual(parse_ns_headers([""]), [])
 
     def test_bad_cookie_header(self):
 
