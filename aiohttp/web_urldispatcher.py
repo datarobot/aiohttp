@@ -191,7 +191,7 @@ def _defaultExpectHandler(request):
         if expect.lower() == "100-continue":
             request.transport.write(b"HTTP/1.1 100 Continue\r\n\r\n")
         else:
-            raise HTTPExpectationFailed(text="Unknown Expect: %s" % expect)
+            raise HTTPExpectationFailed(text="Unknown Expect")
 
 
 class ResourceAdapter(AbstractResource):
